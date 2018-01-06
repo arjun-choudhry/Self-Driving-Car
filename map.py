@@ -14,6 +14,9 @@ from kivy.properties import NumericProperty, ReferenceListProperty, ObjectProper
 from kivy.vector import Vector
 from kivy.clock import Clock
 
+# Importing the Dqn object from our AI in ai.py
+from ai import Dqn
+
 # Introducing last_x and last_y, used to keep the last point in memory when we draw the sand on the map
 last_x = 0
 last_y = 0
@@ -70,24 +73,24 @@ class Car(Widget):
     signal2 = NumericProperty(0)
     signal3 = NumericProperty(0)
 
-def move(self, rotation):
-    self.pos = Vector(*self.velocity) + self.pos
-    self.rotation = rotation
-    self.angle = self.angle + self.rotation
-    self.sensor1 = Vector(30, 0).rotate(self.angle) + self.pos
-    self.sensor2 = Vector(30, 0).rotate((self.angle+30)%360) + self.pos
-    self.sensor3 = Vector(30, 0).rotate((self.angle-30)%360) + self.pos
-    self.signal1 = int(np.sum(sand[int(self.sensor1_x)-10:int(self.sensor1_x)+10, int(self.sensor1_y)-10:int(self.sensor1_y)+10]))/400.
-    self.signal2 = int(np.sum(sand[int(self.sensor2_x)-10:int(self.sensor2_x)+10, int(self.sensor2_y)-10:int(self.sensor2_y)+10]))/400.
-    self.signal3 = int(np.sum(sand[int(self.sensor3_x)-10:int(self.sensor3_x)+10, int(self.sensor3_y)-10:int(self.sensor3_y)+10]))/400.
+    def move(self, rotation):
+        self.pos = Vector(*self.velocity) + self.pos
+        self.rotation = rotation
+        self.angle = self.angle + self.rotation
+        self.sensor1 = Vector(30, 0).rotate(self.angle) + self.pos
+        self.sensor2 = Vector(30, 0).rotate((self.angle+30)%360) + self.pos
+        self.sensor3 = Vector(30, 0).rotate((self.angle-30)%360) + self.pos
+        self.signal1 = int(np.sum(sand[int(self.sensor1_x)-10:int(self.sensor1_x)+10, int(self.sensor1_y)-10:int(self.sensor1_y)+10]))/400.
+        self.signal2 = int(np.sum(sand[int(self.sensor2_x)-10:int(self.sensor2_x)+10, int(self.sensor2_y)-10:int(self.sensor2_y)+10]))/400.
+        self.signal3 = int(np.sum(sand[int(self.sensor3_x)-10:int(self.sensor3_x)+10, int(self.sensor3_y)-10:int(self.sensor3_y)+10]))/400.
 
-    # Writing the below code to not allow the car to go outside the maze defined. We make the density of the sand signal as 1,ie full sand. When it gets too close to the wall, then we punish the car by giving it a punishment
-    if self.sensor1_x>longueur-10 or self.sensor1_x<10 or self.sensor1_y>largeur-10 or self.sensor1_y<10:
-        self.signal1 = 1.
-    if self.sensor2_x>longueur-10 or self.sensor2_x<10 or self.sensor2_y>largeur-10 or self.sensor2_y<10:
-        self.signal2 = 1.
-    if self.sensor3_x>longueur-10 or self.sensor3_x<10 or self.sensor3_y>largeur-10 or self.sensor3_y<10:
-        self.signal3 = 1.
+        # Writing the below code to not allow the car to go outside the maze defined. We make the density of the sand signal as 1,ie full sand. When it gets too close to the wall, then we punish the car by giving it a punishment
+        if self.sensor1_x>longueur-10 or self.sensor1_x<10 or self.sensor1_y>largeur-10 or self.sensor1_y<10:
+            self.signal1 = 1.
+        if self.sensor2_x>longueur-10 or self.sensor2_x<10 or self.sensor2_y>largeur-10 or self.sensor2_y<10:
+            self.signal2 = 1.
+        if self.sensor3_x>longueur-10 or self.sensor3_x<10 or self.sensor3_y>largeur-10 or self.sensor3_y<10:
+            self.signal3 = 1.
 
 class Ball1(Widget):
     pass
@@ -95,6 +98,84 @@ class Ball2(Widget):
     pass
 class Ball3(Widget):
     pass
+
+# Creating the game class
+class Game(Widget):
+    car = ObjectProperty(None)
+    ball1 = ObjectProperty(None)
+    ball2 = ObjectProperty(None)
+    ball3 = ObjectProperty(None)
+
+    def serve_car(self):
+        self.car.center = self.center
+        self.car.velocity = Vector(6, 0)
+
+    def update(self, dt):
+
+        global brain
+        global last_reward
+        global scores
+        global last_distance
+        global goal_x
+        global goal_y
+        global longueur
+        global largeur
+
+        longueur = self.width
+        largeur = self.height
+        if first_update:
+            init()
+
+        xx = goal_x - self.car.x
+        yy = goal_y - self.car.y
+        orientation = Vector(*self.car.velocity).angle((xx,yy))/180.
+        # last_signal is an array that containes the signals returned from the 3 sensors as well as the orientation parameters. 'orientation' stands for the orientation of the car w.r.t goal. Hence, if it is heading towards the goal, it will have a value of 0. If it is travelling slightly towards right, then the orientation will have a value of 45deg and so on. By adding the -orientaion parameter, we ensure that the car is exploring in the other direction as well and not only in the same direction. These 5 parameters are the input vectors that go into the network and these 5 inputs are adjusted by the weights.
+        last_signal = [self.car.signal1, self.car.signal2, self.car.signal3, orientation, -orientation]
+        # The action below is the brain of our AI. It contains the output of the neural network result returned by the brain.update function. This function is present in the ai.py class. It takes 2 inputs as parameters, the last_signal array that we prepared in the previous step and the last_reward input.
+        action = brain.update(last_reward, last_signal)
+        scores.append(brain.score())
+        # We update the rotation vector and move the car in the requisite direction
+        rotation = action2rotation[action]
+        self.car.move(rotation)
+        # We update the distance of the car from the goal
+        distance = np.sqrt((self.car.x - goal_x)**2 + (self.car.y - goal_y)**2)
+        self.ball1.pos = self.car.sensor1
+        self.ball2.pos = self.car.sensor2
+        self.ball3.pos = self.car.sensor3
+
+        # If the car goes in the sand, we slow down the spped and give it a reward of -1
+        if sand[int(self.car.x),int(self.car.y)] > 0:
+            self.car.velocity = Vector(1, 0).rotate(self.car.angle)
+            last_reward = -1
+
+        # If the car is closer to the goal, we give a positive reward else we it a slightly negative reward
+        else: # otherwise
+            self.car.velocity = Vector(6, 0).rotate(self.car.angle)
+            last_reward = -0.2
+            if distance < last_distance:
+                last_reward = 0.1
+
+        # Setting the penalty for getting closer to the boundaries
+        if self.car.x < 10:
+            self.car.x = 10
+            last_reward = -1
+        if self.car.x > self.width - 10:
+            self.car.x = self.width - 10
+            last_reward = -1
+        if self.car.y < 10:
+            self.car.y = 10
+            last_reward = -1
+        if self.car.y > self.height - 10:
+            self.car.y = self.height - 10
+            last_reward = -1
+
+        # Updating the goal once the car reaches the goal
+        if distance < 100:
+            goal_x = self.width-goal_x
+            goal_y = self.height-goal_y
+
+        last_distance = distance
+
 
 # Adding the painting tools
 class MyPaintWidget(Widget):
@@ -125,4 +206,41 @@ class MyPaintWidget(Widget):
             last_x = x
             last_y = y
 
+# Adding the API Buttons (clear, save and load)
+class CarApp(App):
+    def build(self):
+        parent = Game()
+        parent.serve_car()
+        Clock.schedule_interval(parent.update, 1.0/60.0)
+        self.painter = MyPaintWidget()
+        clearbtn = Button(text = 'clear')
+        savebtn = Button(text = 'save', pos = (parent.width, 0))
+        loadbtn = Button(text = 'load', pos = (2 * parent.width, 0))
+        clearbtn.bind(on_release = self.clear_canvas)
+        savebtn.bind(on_release = self.save)
+        loadbtn.bind(on_release = self.load)
+        parent.add_widget(self.painter)
+        parent.add_widget(clearbtn)
+        parent.add_widget(savebtn)
+        parent.add_widget(loadbtn)
+        return parent
+
+    def clear_canvas(self, obj):
+        global sand
+        self.painter.canvas.clear()
+        sand = np.zeros((longueur,largeur))
+
+    def save(self, obj):
+        print("saving brain...")
+        brain.save()
+        plt.plot(scores)
+        plt.show()
+
+    def load(self, obj):
+        print("loading last saved brain...")
+        brain.load()
+
+# Running the whole thing
+if __name__ == '__main__':
+    CarApp().run()
 
