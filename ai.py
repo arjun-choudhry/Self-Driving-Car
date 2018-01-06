@@ -64,3 +64,77 @@ class ReplayMemory(object):
         # Mapping the samples to the pytorch variable
         samples = map(lambda x: Variable(torch.cat(x,0)),samples)
         return samples
+
+# ******************************************
+# Implementing Deep Q Learning
+# ******************************************
+""" The deep q learning class will implement the deep q learning algorithm. It will internally use the 2 classes created above. It will contain the following functions:
+init() -> This will be used to initialize the variables attached to the object that will be created from this class.
+select_action() will be there to select the correct action for a particular time.
+We will also have an update(), score() to update the score and see how the learning is going on, save() to save the brain of the car and the load() to load the brain"""
+class Dqn():
+    def __init__(self, input_size, nb_action, gamma):
+        self.gamma = gamma
+        self.reward_window = []
+        self.model = Network(input_size,nb_action)
+        self.memory = ReplayMemory(100000)
+        # Now, we will create an object of the optimizer. We are choosing the Adam optimizer.
+        self.optimizer = optim.Adam(self.model.parameters(), lr = 0.001)
+        # For pytorch, we need the vector to be a torch tensor as well as it needs to have one more dimension, which corresponds to the batch as we want the last_state to be the input to the neural network, but when working with neural networks in general, whether with pytorch, tensorflow or keras, input vectors cannot be a simple vector by itself, it has to be in a batch. The network can only accept a batch of input vectors. Hence, we will not only create a tensor but also attach a batch parameter. Hence, we need to create a fake dimension corresponding the the batch, and this fake dimension will be the 1st dimension
+        self.last_state = torch.Tensor(input_size).unsqueeze(0)
+        self.last_action = 0
+        self.last_reward = 0
+
+    # In this function, we will input the state to the neural network, get the outputs as the q-values and then apply these q-values to the softmax function to finally get the desired action.
+    def select_action(self, input_state):
+        probs = fnc.softmax(self.model(Variable(input_state, volatile = True))*7) # T=7
+        action = probs.multinomial()
+        # The below will return either 0,1,2 corresponding to the actions
+        return action.data[0,0]
+
+    # In the below function, we will train the deep q learning network, ie we will do the whole process of forward-propagation, back-propagation, ie we will get the output, compare the output with the target to compute the loss error, then backpropagate this loss error into the neural network and then using the sgd, we will adjust the weights depending on how much they contributed to the loss parameter.
+    def learn(self,batch_state, batch_next_state, batc_reward, batch_action):
+        # We want the model outputs of the input_states of our batch inputs.
+        outputs = self.model(batch_state).gather(1, batch_action.unsqueeze(1)).squeeze(1)
+        next_outputs = self.model(batch_next_state).detach().max(1)[0]
+        target = self.gamma*next_outputs + batch_reward
+        td_loss = F.smooth_l1_loss(outputs, target)
+        self.optimizer.zero_grad()
+        td_loss.backward(retain_variables = True)
+        self.optimizer.step()
+
+    def update(self, reward, new_signal):
+        new_state = torch.Tensor(new_signal).float().unsqueeze(0)
+        self.memory.push((self.last_state, new_state, torch.LongTensor([int(self.last_action)]), torch.Tensor([self.last_reward])))
+        action = self.select_action(new_state)
+        if len(self.memory.memory) > 100:
+            batch_state, batch_next_state, batch_action, batch_reward = self.memory.sample(100)
+            self.learn(batch_state, batch_next_state, batch_reward, batch_action)
+        self.last_action = action
+        self.last_state = new_state
+        self.last_reward = reward
+        self.reward_window.append(reward)
+        if len(self.reward_window) > 1000:
+            del self.reward_window[0]
+        return action
+
+    # The following function updates the score and see how the learning is going on
+    def score(self):
+        return sum(self.reward_window)/(len(self.reward_window)+1.)
+
+    # The below function saves the learnings of the agent in the memory
+    def save(self):
+        torch.save({'state_dict': self.model.state_dict(),
+                    'optimizer' : self.optimizer.state_dict(),
+                    }, 'last_brain.pth')
+
+    # The below function loads the learnings of the agent from the memory
+    def load(self):
+        if os.path.isfile('last_brain.pth'):
+            print("=> loading checkpoint... ")
+            checkpoint = torch.load('last_brain.pth')
+            self.model.load_state_dict(checkpoint['state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            print("done !")
+        else:
+            print("no checkpoint found...")
