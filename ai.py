@@ -87,7 +87,7 @@ class Dqn():
 
     # In this function, we will input the state to the neural network, get the outputs as the q-values and then apply these q-values to the softmax function to finally get the desired action.
     def select_action(self, input_state):
-        probs = fnc.softmax(self.model(Variable(input_state, volatile = True))*7) # T=7
+        probs = fnc.softmax(self.model(Variable(input_state, volatile = True))*10) # T=7
         action = probs.multinomial()
         # The below will return either 0,1,2 corresponding to the actions
         return action.data[0,0]
