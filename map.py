@@ -25,7 +25,7 @@ length = 0
 
 # Getting our AI, which we call "brain", and that contains our neural network that represents our Q-function
 brain = Dqn(5,3,0.9)
-action2rotation = [0,25,-25]
+action2rotation = [0,20,-20]
 last_reward = 0
 scores = []
 
@@ -37,8 +37,8 @@ def init():
     global goal_y
     global first_update
     sand = np.zeros((longueur,largeur))
-    goal_x = 30
-    goal_y = largeur - 30
+    goal_x = 20
+    goal_y = largeur - 20
     first_update = False
 
 # Initializing the last distance
